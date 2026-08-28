@@ -82,6 +82,21 @@ the inference backend):
 Photos are drawn to a canvas and scaled down to 1024px on the long edge, then
 encoded as JPEG at quality 0.85 to keep the upload small.
 
+### CORS
+
+`OPTIONS /v1/chat/completions` currently answers `401 Missing API key`, because
+the key check also runs on the preflight — and browsers never send an
+`Authorization` header on a preflight. A preflight must answer with a 2xx or
+the browser refuses to send the request at all, reporting only `Failed to
+fetch`. `/register` and `/authenticate/email` answer `204`, so logging in works
+and identifying does not.
+
+Until the API lets `OPTIONS` through without a key, identification cannot work
+from a browser; there is no client-side way around it, as the `Authorization`
+header is what forces the preflight in the first place. The app tells the two
+apart by sending a preflight-free probe: if that reaches the API, the network
+is fine and the preflight is what was refused.
+
 ### Retries
 
 The tunnel in front of the API drops a noticeable share of requests — measured

@@ -264,6 +264,23 @@
     return attempt(0);
   }
 
+  // A rejected fetch is opaque: a dropped connection and a refused CORS preflight
+  // look identical from script. A simple request needs no preflight, so if one
+  // reaches the API, the network is fine and the preflight is what's being rejected.
+  function diagnoseNetwork() {
+    return fetch(API + "/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: ""
+    }).then(function () {
+      return "the API refused the browser's CORS preflight. OPTIONS /v1/chat/completions " +
+             "has to answer with a 2xx before the browser will send the request; it currently " +
+             "answers 401 because the key check runs on the preflight, which never carries a key.";
+    }, function () {
+      return "the connection dropped. Please try again.";
+    });
+  }
+
   function describe(err) {
     if (err.network) return "the connection dropped. Please try again.";
     if (err.status >= 500) return "the service is busy right now. Please try again.";
@@ -523,6 +540,10 @@
       } else if (err.status === 401) {
         say($("appMsg"), "Your session expired. Please log in again.", "error");
         signOut();
+      } else if (err.network) {
+        diagnoseNetwork().then(function (reason) {
+          say($("appMsg"), "Couldn't identify that photo — " + reason, "error");
+        });
       } else {
         say($("appMsg"), "Couldn't identify that photo — " + describe(err), "error");
       }
