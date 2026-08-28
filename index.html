@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04121f">
+<title>Fish Identifier</title>
+<style>
+  :root{
+    --bg:#04121f;
+    --bg-2:#071d31;
+    --surface:rgba(255,255,255,.05);
+    --surface-2:rgba(255,255,255,.08);
+    --line:rgba(120,190,230,.18);
+    --text:#e9f4fb;
+    --muted:#8fb0c6;
+    --accent:#37c8f2;
+    --accent-2:#5ef0c4;
+    --danger:#ff7b8a;
+    --radius:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 700px at 80% -10%, #0b3a5c 0%, transparent 60%),
+      radial-gradient(900px 600px at -10% 110%, #06403a 0%, transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;
+    flex-direction:column;
+    min-height:100dvh;
+  }
+  header{
+    display:flex;align-items:center;gap:10px;
+    padding:calc(14px + env(safe-area-inset-top)) 18px 14px;
+    border-bottom:1px solid var(--line);
+    background:rgba(4,18,31,.6);
+    backdrop-filter:blur(12px);
+    position:sticky;top:0;z-index:5;
+  }
+  header .logo{font-size:22px;line-height:1}
+  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px;flex:1;white-space:nowrap}
+  header .who{font-size:12px;color:var(--muted);max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  main{flex:1;width:100%;max-width:720px;margin:0 auto;padding:20px 18px calc(28px + env(safe-area-inset-bottom));}
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:20px;
+    backdrop-filter:blur(8px);
+  }
+  h2{margin:0 0 6px;font-size:20px;font-weight:650}
+  .sub{margin:0 0 18px;color:var(--muted);font-size:14px}
+  label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
+  input[type=email],input[type=password]{
+    width:100%;padding:12px 14px;margin-bottom:14px;
+    background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:12px;
+    color:var(--text);font-size:16px;outline:none;
+  }
+  input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(55,200,242,.15)}
+  button{
+    font:inherit;font-weight:600;cursor:pointer;border:none;border-radius:12px;
+    padding:13px 18px;color:#04121f;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    width:100%;transition:transform .08s ease,opacity .2s ease;
+  }
+  button:active{transform:scale(.985)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.ghost{
+    background:var(--surface-2);color:var(--text);border:1px solid var(--line);
+  }
+  .row{display:flex;gap:10px}
+  .row>*{flex:1}
+  .tabs{display:flex;gap:6px;background:rgba(0,0,0,.25);padding:5px;border-radius:12px;margin-bottom:18px}
+  .tabs button{background:transparent;color:var(--muted);padding:9px;font-size:14px}
+  .tabs button[aria-selected=true]{background:var(--surface-2);color:var(--text)}
+  .msg{margin-top:14px;font-size:14px;padding:10px 12px;border-radius:10px;display:none}
+  .msg.show{display:block}
+  .msg.error{background:rgba(255,123,138,.12);border:1px solid rgba(255,123,138,.35);color:var(--danger)}
+  .msg.ok{background:rgba(94,240,196,.10);border:1px solid rgba(94,240,196,.3);color:var(--accent-2)}
+
+  /* capture */
+  .stage{
+    position:relative;width:100%;aspect-ratio:4/3;border-radius:var(--radius);overflow:hidden;
+    background:rgba(0,0,0,.35);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .stage video,.stage img{width:100%;height:100%;object-fit:cover;display:block}
+  .stage .placeholder{text-align:center;color:var(--muted);padding:24px;font-size:14px}
+  .stage .placeholder .big{font-size:40px;display:block;margin-bottom:10px}
+  .controls{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .controls button{flex:1 1 140px;width:auto}
+
+  .result{margin-top:18px}
+  .result h3{margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .answer{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px;white-space:pre-wrap;word-wrap:break-word;line-height:1.6;
+  }
+  .spinner{
+    display:inline-block;width:16px;height:16px;border:2px solid rgba(4,18,31,.35);
+    border-top-color:#04121f;border-radius:50%;animation:spin .7s linear infinite;
+    vertical-align:-3px;margin-right:8px;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .thinking{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+  .dots::after{content:'';animation:dots 1.4s steps(4,end) infinite}
+  @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+  footer{padding:0 18px calc(20px + env(safe-area-inset-bottom));text-align:center;color:var(--muted);font-size:12px}
+  @media (max-width:430px){header .who{display:none}}
+  .hidden{display:none!important}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🐟</span>
+  <h1>Fish Identifier</h1>
+  <span class="who" id="who"></span>
+  <button id="logoutBtn" class="ghost hidden" style="width:auto;padding:7px 12px;font-size:13px">Log out</button>
+</header>
+
+<main>
+  <!-- ============ AUTH ============ -->
+  <section id="authView" class="card">
+    <h2>Sign in</h2>
+    <p class="sub">Log in with your Forgegrit account to identify fish.</p>
+
+    <div class="tabs" role="tablist">
+      <button id="tabLogin" role="tab" aria-selected="true">Log in</button>
+      <button id="tabRegister" role="tab" aria-selected="false">Register</button>
+    </div>
+
+    <form id="authForm" autocomplete="on">
+      <label for="email">Email</label>
+      <input id="email" type="email" required placeholder="you@example.com" autocomplete="email">
+      <label for="password">Password</label>
+      <input id="password" type="password" required placeholder="••••••••" autocomplete="current-password">
+      <button id="authSubmit" type="submit">Log in</button>
+    </form>
+    <div id="authMsg" class="msg"></div>
+  </section>
+
+  <!-- ============ CAMERA ============ -->
+  <section id="appView" class="hidden">
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted class="hidden"></video>
+      <img id="preview" alt="Captured photo" class="hidden">
+      <div class="placeholder" id="placeholder">
+        <span class="big">📷</span>
+        Take a photo of a fish, or choose one from your library.
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="startCam">Open camera</button>
+      <button id="shoot" class="hidden">Take picture</button>
+      <button id="pickBtn" class="ghost">Choose photo</button>
+      <button id="retake" class="ghost hidden">Retake</button>
+    </div>
+
+    <input id="file" type="file" accept="image/*" capture="environment" class="hidden">
+    <canvas id="canvas" class="hidden"></canvas>
+
+    <div id="appMsg" class="msg"></div>
+
+    <div class="result hidden" id="resultBox">
+      <h3>Identification</h3>
+      <div class="answer" id="answer"></div>
+    </div>
+  </section>
+</main>
+
+<footer>Powered by claude-fable-5 via Forgegrit</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var API = "https://api-forgegrit.serveousercontent.com";
+  var MODEL = "claude-fable-5";
+  var PROMPT = "What fish is this";
+  var STORE_KEY = "forgegrit_api_key";
+  var STORE_EMAIL = "forgegrit_email";
+  var MAX_DIM = 1024;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var state = { key: null, email: null, mode: "login", stream: null, busy: false };
+
+  /* ---------------- helpers ---------------- */
+
+  function show(el) { el.classList.remove("hidden"); }
+  function hide(el) { el.classList.add("hidden"); }
+
+  function say(el, text, kind) {
+    el.textContent = text;
+    el.className = "msg show " + (kind || "");
+    if (!text) el.className = "msg";
+  }
+
+  function clearMsg(el) { el.textContent = ""; el.className = "msg"; }
+
+  function request(path, body, key) {
+    var headers = { "Content-Type": "application/json" };
+    if (key) headers.Authorization = "Bearer " + key;
+    return fetch(API + path, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        var data = null;
+        try { data = JSON.parse(text); } catch (e) { /* non-JSON body */ }
+        if (!res.ok) {
+          var detail = (data && (data.error || data.message)) || text || ("HTTP " + res.status);
+          var err = new Error(detail);
+          err.status = res.status;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  // The inference backend occasionally returns a transient 5xx; give it one more go.
+  function requestWithRetry(path, body, key) {
+    return request(path, body, key).catch(function (err) {
+      if (err.status >= 500) return request(path, body, key);
+      throw err;
+    });
+  }
+
+  /* ---------------- auth ---------------- */
+
+  function setMode(mode) {
+    state.mode = mode;
+    var login = mode === "login";
+    $("tabLogin").setAttribute("aria-selected", login);
+    $("tabRegister").setAttribute("aria-selected", !login);
+    $("authSubmit").textContent = login ? "Log in" : "Create account";
+    $("password").setAttribute("autocomplete", login ? "current-password" : "new-password");
+    clearMsg($("authMsg"));
+  }
+
+  function authenticate(email, password) {
+    return request("/authenticate/email", { email: email, password: password })
+      .then(function (data) {
+        if (!data || !data.api_key) throw new Error("No API key returned");
+        return data.api_key;
+      });
+  }
+
+  function onAuthSubmit(e) {
+    e.preventDefault();
+    if (state.busy) return;
+
+    var email = $("email").value.trim();
+    var password = $("password").value;
+    if (!email || !password) return;
+
+    state.busy = true;
+    $("authSubmit").disabled = true;
+    var registering = state.mode === "register";
+    say($("authMsg"), registering ? "Creating your account…" : "Signing in…", "ok");
+
+    var chain = registering
+      ? request("/register", { email: email, password: password }).then(function () {
+          return authenticate(email, password);
+        })
+      : authenticate(email, password);
+
+    chain.then(function (key) {
+      signedIn(key, email);
+    }).catch(function (err) {
+      say($("authMsg"), err.message || "Something went wrong.", "error");
+    }).then(function () {
+      state.busy = false;
+      $("authSubmit").disabled = false;
+    });
+  }
+
+  function signedIn(key, email) {
+    state.key = key;
+    state.email = email;
+    try {
+      localStorage.setItem(STORE_KEY, key);
+      if (email) localStorage.setItem(STORE_EMAIL, email);
+    } catch (e) { /* storage unavailable — session only */ }
+    $("password").value = "";
+    clearMsg($("authMsg"));
+    $("who").textContent = email || "";
+    show($("logoutBtn"));
+    hide($("authView"));
+    show($("appView"));
+  }
+
+  function signOut() {
+    stopCamera();
+    state.key = null;
+    state.email = null;
+    try {
+      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(STORE_EMAIL);
+    } catch (e) { /* ignore */ }
+    $("who").textContent = "";
+    hide($("logoutBtn"));
+    hide($("appView"));
+    show($("authView"));
+    resetCapture();
+  }
+
+  /* ---------------- camera ---------------- */
+
+  function stopCamera() {
+    if (state.stream) {
+      state.stream.getTracks().forEach(function (t) { t.stop(); });
+      state.stream = null;
+    }
+    hide($("video"));
+    hide($("shoot"));
+    show($("startCam"));
+  }
+
+  function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      say($("appMsg"), "Live camera isn't available here — use “Choose photo” instead.", "error");
+      return;
+    }
+    clearMsg($("appMsg"));
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    }).then(function (stream) {
+      state.stream = stream;
+      var video = $("video");
+      video.srcObject = stream;
+      video.play();
+      hide($("preview"));
+      hide($("placeholder"));
+      hide($("retake"));
+      show(video);
+      hide($("startCam"));
+      show($("shoot"));
+    }).catch(function () {
+      say($("appMsg"), "Couldn't open the camera. Check permissions, or use “Choose photo”.", "error");
+    });
+  }
+
+  function shoot() {
+    var video = $("video");
+    if (!video.videoWidth) return;
+    var blobUrl = drawToCanvas(video, video.videoWidth, video.videoHeight);
+    stopCamera();
+    usePhoto(blobUrl);
+  }
+
+  function drawToCanvas(source, w, h) {
+    var scale = Math.min(1, MAX_DIM / Math.max(w, h));
+    var canvas = $("canvas");
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  function onFilePicked(e) {
+    var file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        stopCamera();
+        usePhoto(drawToCanvas(img, img.naturalWidth, img.naturalHeight));
+      };
+      img.onerror = function () { say($("appMsg"), "That file couldn't be read as an image.", "error"); };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function usePhoto(dataUrl) {
+    var preview = $("preview");
+    preview.src = dataUrl;
+    show(preview);
+    hide($("placeholder"));
+    hide($("startCam"));
+    show($("retake"));
+    identify(dataUrl);
+  }
+
+  function resetCapture() {
+    stopCamera();
+    hide($("preview"));
+    $("preview").removeAttribute("src");
+    show($("placeholder"));
+    hide($("retake"));
+    hide($("resultBox"));
+    $("answer").textContent = "";
+    clearMsg($("appMsg"));
+  }
+
+  /* ---------------- identify ---------------- */
+
+  function identify(dataUrl) {
+    var base64 = dataUrl.split(",")[1];
+    var box = $("resultBox");
+    var answer = $("answer");
+
+    clearMsg($("appMsg"));
+    show(box);
+    answer.innerHTML = '<span class="thinking"><span class="spinner" style="border-top-color:#37c8f2"></span>' +
+                       'Identifying<span class="dots"></span></span>';
+    $("retake").disabled = true;
+    $("pickBtn").disabled = true;
+
+    requestWithRetry("/v1/chat/completions", {
+      model: MODEL,
+      messages: [{ role: "user", content: PROMPT, images: [base64] }],
+      stream: false
+    }, state.key).then(function (data) {
+      var choice = data && data.choices && data.choices[0];
+      var text = choice && choice.message && choice.message.content;
+      answer.textContent = (text && text.trim()) || "The model didn't return an answer. Try another photo.";
+    }).catch(function (err) {
+      hide(box);
+      answer.textContent = "";
+      var detail = err.message || "Request failed";
+      if (/api key|unauthorized|invalid/i.test(detail)) {
+        say($("appMsg"), "Your session expired. Please log in again.", "error");
+        signOut();
+      } else {
+        say($("appMsg"), "Couldn't identify that photo: " + detail, "error");
+      }
+    }).then(function () {
+      $("retake").disabled = false;
+      $("pickBtn").disabled = false;
+    });
+  }
+
+  /* ---------------- wiring ---------------- */
+
+  $("tabLogin").addEventListener("click", function () { setMode("login"); });
+  $("tabRegister").addEventListener("click", function () { setMode("register"); });
+  $("authForm").addEventListener("submit", onAuthSubmit);
+  $("logoutBtn").addEventListener("click", signOut);
+
+  $("startCam").addEventListener("click", startCamera);
+  $("shoot").addEventListener("click", shoot);
+  $("retake").addEventListener("click", resetCapture);
+  $("pickBtn").addEventListener("click", function () { $("file").click(); });
+  $("file").addEventListener("change", onFilePicked);
+
+  window.addEventListener("pagehide", stopCamera);
+
+  (function restore() {
+    var key = null, email = null;
+    try {
+      key = localStorage.getItem(STORE_KEY);
+      email = localStorage.getItem(STORE_EMAIL);
+    } catch (e) { /* ignore */ }
+    if (key) signedIn(key, email);
+  })();
+})();
+</script>
+</body>
+</html>
