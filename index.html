@@ -101,7 +101,11 @@
     background:rgba(0,0,0,.35);border:1px solid var(--line);
     display:flex;align-items:center;justify-content:center;
   }
-  .stage video,.stage img{width:100%;height:100%;object-fit:cover;display:block}
+  .stage video{width:100%;height:100%;object-fit:cover;display:block}
+  /* The photo is shown whole — a cover crop would hide part of what gets sent. */
+  .stage img{width:100%;height:100%;object-fit:contain;display:block}
+  .stage.photo{aspect-ratio:auto;max-height:70vh;background:#000}
+  .stage.photo img{height:auto;max-height:70vh}
   .stage .placeholder{text-align:center;color:var(--muted);padding:24px;font-size:14px}
   .stage .placeholder .big{font-size:40px;display:block;margin-bottom:10px}
   .controls{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
@@ -176,7 +180,7 @@
       <button id="retake" class="ghost hidden">Retake</button>
     </div>
 
-    <input id="file" type="file" accept="image/*" capture="environment" class="hidden">
+    <input id="file" type="file" accept="image/*" class="hidden">
     <canvas id="canvas" class="hidden"></canvas>
 
     <div id="appMsg" class="msg"></div>
@@ -354,6 +358,7 @@
       video.srcObject = stream;
       video.play();
       hide($("preview"));
+      $("stage").classList.remove("photo");
       hide($("placeholder"));
       hide($("retake"));
       show(video);
@@ -373,6 +378,7 @@
   }
 
   function drawToCanvas(source, w, h) {
+    if (!w || !h) throw new Error("empty image");
     var scale = Math.min(1, MAX_DIM / Math.max(w, h));
     var canvas = $("canvas");
     canvas.width = Math.round(w * scale);
@@ -381,26 +387,46 @@
     return canvas.toDataURL("image/jpeg", 0.85);
   }
 
+  // An object URL keeps a large photo out of a base64 string, and decode() guarantees
+  // the bitmap is ready — drawing on load alone can yield a blank or partial canvas.
+  function loadImage(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      var settle = function (ok) {
+        return function () {
+          if (ok && img.naturalWidth) resolve({ img: img, release: function () { URL.revokeObjectURL(url); } });
+          else { URL.revokeObjectURL(url); reject(new Error("decode failed")); }
+        };
+      };
+      img.onload = function () {
+        if (img.decode) img.decode().then(settle(true), settle(false));
+        else settle(true)();
+      };
+      img.onerror = settle(false);
+      img.src = url;
+    });
+  }
+
   function onFilePicked(e) {
     var file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      var img = new Image();
-      img.onload = function () {
-        stopCamera();
-        usePhoto(drawToCanvas(img, img.naturalWidth, img.naturalHeight));
-      };
-      img.onerror = function () { say($("appMsg"), "That file couldn't be read as an image.", "error"); };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
+    clearMsg($("appMsg"));
+    loadImage(file).then(function (loaded) {
+      stopCamera();
+      var dataUrl = drawToCanvas(loaded.img, loaded.img.naturalWidth, loaded.img.naturalHeight);
+      loaded.release();
+      usePhoto(dataUrl);
+    }).catch(function () {
+      say($("appMsg"), "That photo couldn't be read. If it came from an iPhone, try a JPEG or PNG.", "error");
+    });
   }
 
   function usePhoto(dataUrl) {
     var preview = $("preview");
     preview.src = dataUrl;
+    $("stage").classList.add("photo");
     show(preview);
     hide($("placeholder"));
     hide($("startCam"));
@@ -410,6 +436,7 @@
 
   function resetCapture() {
     stopCamera();
+    $("stage").classList.remove("photo");
     hide($("preview"));
     $("preview").removeAttribute("src");
     show($("placeholder"));
