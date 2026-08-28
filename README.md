@@ -2,24 +2,20 @@
 
 Identify fish flawlessly.
 
+[Identify Today](https://trey16885.github.io/Fish-Identifier/)
+
+Powered by Forgegrit
+
 A single-page web app: take a photo of a fish, and it comes back with an
 identification from `claude-fable-5` via the Forgegrit API.
 
-## Live site
+## Hosting
 
 The app is a static site, so GitHub Pages serves it as-is. Pages gives it
-HTTPS, which browsers require before granting camera access — this is why it
-should be used from the Pages URL rather than opened as a local file.
+HTTPS, which browsers require before granting camera access — this is why the
+link above is the way to use it, rather than opening the file locally.
 
-Once Pages is enabled it will be at:
-
-```
-https://trey16885.github.io/Fish-Identifier/
-```
-
-### Enabling Pages
-
-Under **Settings → Pages**, pick either source:
+Under **Settings → Pages**, either source works:
 
 - **Deploy from a branch** — choose the branch and `/ (root)`. Nothing else is
   needed; `.github/workflows/pages.yml` is simply unused.
