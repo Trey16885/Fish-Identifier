@@ -229,6 +229,11 @@
       method: "POST",
       headers: headers,
       body: JSON.stringify(body)
+    }).catch(function () {
+      // The tunnel in front of the API drops connections intermittently.
+      var err = new Error("the connection dropped");
+      err.network = true;
+      throw err;
     }).then(function (res) {
       return res.text().then(function (text) {
         var data = null;
@@ -244,12 +249,25 @@
     });
   }
 
-  // The inference backend occasionally returns a transient 5xx; give it one more go.
+  // The API is reached over a tunnel that drops a noticeable share of requests,
+  // as an empty 502 or a dead connection. Both are transient, so retry them.
   function requestWithRetry(path, body, key) {
-    return request(path, body, key).catch(function (err) {
-      if (err.status >= 500) return request(path, body, key);
-      throw err;
-    });
+    var backoff = [600, 1600];
+    function attempt(n) {
+      return request(path, body, key).catch(function (err) {
+        var transient = err.network || err.status >= 500;
+        if (!transient || n >= backoff.length) throw err;
+        return new Promise(function (resolve) { setTimeout(resolve, backoff[n]); })
+          .then(function () { return attempt(n + 1); });
+      });
+    }
+    return attempt(0);
+  }
+
+  function describe(err) {
+    if (err.network) return "the connection dropped. Please try again.";
+    if (err.status >= 500) return "the service is busy right now. Please try again.";
+    return err.message || "the request failed.";
   }
 
   /* ---------------- auth ---------------- */
@@ -265,7 +283,7 @@
   }
 
   function authenticate(email, password) {
-    return request("/authenticate/email", { email: email, password: password })
+    return requestWithRetry("/authenticate/email", { email: email, password: password })
       .then(function (data) {
         if (!data || !data.api_key) throw new Error("No API key returned");
         return data.api_key;
@@ -286,7 +304,7 @@
     say($("authMsg"), registering ? "Creating your account…" : "Signing in…", "ok");
 
     var chain = registering
-      ? request("/register", { email: email, password: password }).then(function () {
+      ? requestWithRetry("/register", { email: email, password: password }).then(function () {
           return authenticate(email, password);
         })
       : authenticate(email, password);
@@ -294,7 +312,7 @@
     chain.then(function (key) {
       signedIn(key, email);
     }).catch(function (err) {
-      say($("authMsg"), err.message || "Something went wrong.", "error");
+      say($("authMsg"), err.network || err.status >= 500 ? "Couldn't reach the service: " + describe(err) : (err.message || "Something went wrong."), "error");
     }).then(function () {
       state.busy = false;
       $("authSubmit").disabled = false;
@@ -387,15 +405,43 @@
     return canvas.toDataURL("image/jpeg", 0.85);
   }
 
+  function describeImageFailure(file) {
+    var name = (file.name || "").toLowerCase();
+    if (/\.(heic|heif)$/.test(name) || /heic|heif/i.test(file.type || "")) {
+      return "This browser can't read iPhone HEIC photos. On the iPhone, " +
+             "Settings → Camera → Formats → “Most Compatible” saves JPEGs instead.";
+    }
+    return "That photo couldn't be read" + (file.type ? " (" + file.type + ")" : "") + ". Try a JPEG or PNG.";
+  }
+
+  // createImageBitmap decodes off the main thread and copes with larger photos
+  // and more formats than an <img> does; fall back where it isn't available.
+  function loadImage(file) {
+    if (window.createImageBitmap) {
+      return createImageBitmap(file).then(function (bitmap) {
+        return {
+          img: bitmap, width: bitmap.width, height: bitmap.height,
+          release: function () { if (bitmap.close) bitmap.close(); }
+        };
+      }).catch(function () { return loadViaElement(file); });
+    }
+    return loadViaElement(file);
+  }
+
   // An object URL keeps a large photo out of a base64 string, and decode() guarantees
   // the bitmap is ready — drawing on load alone can yield a blank or partial canvas.
-  function loadImage(file) {
+  function loadViaElement(file) {
     return new Promise(function (resolve, reject) {
       var url = URL.createObjectURL(file);
       var img = new Image();
       var settle = function (ok) {
         return function () {
-          if (ok && img.naturalWidth) resolve({ img: img, release: function () { URL.revokeObjectURL(url); } });
+          if (ok && img.naturalWidth) {
+            resolve({
+              img: img, width: img.naturalWidth, height: img.naturalHeight,
+              release: function () { URL.revokeObjectURL(url); }
+            });
+          }
           else { URL.revokeObjectURL(url); reject(new Error("decode failed")); }
         };
       };
@@ -415,11 +461,11 @@
     clearMsg($("appMsg"));
     loadImage(file).then(function (loaded) {
       stopCamera();
-      var dataUrl = drawToCanvas(loaded.img, loaded.img.naturalWidth, loaded.img.naturalHeight);
+      var dataUrl = drawToCanvas(loaded.img, loaded.width, loaded.height);
       loaded.release();
       usePhoto(dataUrl);
     }).catch(function () {
-      say($("appMsg"), "That photo couldn't be read. If it came from an iPhone, try a JPEG or PNG.", "error");
+      say($("appMsg"), describeImageFailure(file), "error");
     });
   }
 
@@ -471,12 +517,14 @@
     }).catch(function (err) {
       hide(box);
       answer.textContent = "";
-      var detail = err.message || "Request failed";
-      if (/api key|unauthorized|invalid/i.test(detail)) {
+      if (!err.network && err.status !== 401 && /api key|unauthorized/i.test(err.message || "")) {
+        say($("appMsg"), "Your session expired. Please log in again.", "error");
+        signOut();
+      } else if (err.status === 401) {
         say($("appMsg"), "Your session expired. Please log in again.", "error");
         signOut();
       } else {
-        say($("appMsg"), "Couldn't identify that photo: " + detail, "error");
+        say($("appMsg"), "Couldn't identify that photo — " + describe(err), "error");
       }
     }).then(function () {
       $("retake").disabled = false;

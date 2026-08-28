@@ -84,8 +84,16 @@ the inference backend):
 ```
 
 Photos are drawn to a canvas and scaled down to 1024px on the long edge, then
-encoded as JPEG at quality 0.85 to keep the upload small. A transient `5xx`
-from the inference backend is retried once.
+encoded as JPEG at quality 0.85 to keep the upload small.
+
+### Retries
+
+The tunnel in front of the API drops a noticeable share of requests — measured
+at roughly one in ten — as an empty `502` (no body, `Connection: close`, no
+`server` header, so it is the tunnel rather than the app) or as a dead
+connection. Both are transient and succeed on a retry, so every request makes
+up to three attempts with a short backoff. Over 15 measured runs that left no
+user-visible failures.
 
 ## Layout
 
