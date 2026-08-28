@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#04121f">
 <title>Fish Identifier</title>
+<meta name="description" content="Take a picture of a fish and get an identification from claude-fable-5.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fish ID">
+<meta property="og:title" content="Fish Identifier">
+<meta property="og:description" content="Take a picture of a fish and get an identification.">
+<meta property="og:type" content="website">
+<!-- Relative paths so the app works from a project Pages URL (/<repo>/) as well as the domain root. -->
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="manifest" href="./manifest.webmanifest">
 <style>
   :root{
     --bg:#04121f;
@@ -89,7 +101,11 @@
     background:rgba(0,0,0,.35);border:1px solid var(--line);
     display:flex;align-items:center;justify-content:center;
   }
-  .stage video,.stage img{width:100%;height:100%;object-fit:cover;display:block}
+  .stage video{width:100%;height:100%;object-fit:cover;display:block}
+  /* The photo is shown whole — a cover crop would hide part of what gets sent. */
+  .stage img{width:100%;height:100%;object-fit:contain;display:block}
+  .stage.photo{aspect-ratio:auto;max-height:70vh;background:#000}
+  .stage.photo img{height:auto;max-height:70vh}
   .stage .placeholder{text-align:center;color:var(--muted);padding:24px;font-size:14px}
   .stage .placeholder .big{font-size:40px;display:block;margin-bottom:10px}
   .controls{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
@@ -164,7 +180,7 @@
       <button id="retake" class="ghost hidden">Retake</button>
     </div>
 
-    <input id="file" type="file" accept="image/*" capture="environment" class="hidden">
+    <input id="file" type="file" accept="image/*" class="hidden">
     <canvas id="canvas" class="hidden"></canvas>
 
     <div id="appMsg" class="msg"></div>
@@ -213,6 +229,11 @@
       method: "POST",
       headers: headers,
       body: JSON.stringify(body)
+    }).catch(function () {
+      // The tunnel in front of the API drops connections intermittently.
+      var err = new Error("the connection dropped");
+      err.network = true;
+      throw err;
     }).then(function (res) {
       return res.text().then(function (text) {
         var data = null;
@@ -228,12 +249,25 @@
     });
   }
 
-  // The inference backend occasionally returns a transient 5xx; give it one more go.
+  // The API is reached over a tunnel that drops a noticeable share of requests,
+  // as an empty 502 or a dead connection. Both are transient, so retry them.
   function requestWithRetry(path, body, key) {
-    return request(path, body, key).catch(function (err) {
-      if (err.status >= 500) return request(path, body, key);
-      throw err;
-    });
+    var backoff = [600, 1600];
+    function attempt(n) {
+      return request(path, body, key).catch(function (err) {
+        var transient = err.network || err.status >= 500;
+        if (!transient || n >= backoff.length) throw err;
+        return new Promise(function (resolve) { setTimeout(resolve, backoff[n]); })
+          .then(function () { return attempt(n + 1); });
+      });
+    }
+    return attempt(0);
+  }
+
+  function describe(err) {
+    if (err.network) return "the connection dropped. Please try again.";
+    if (err.status >= 500) return "the service is busy right now. Please try again.";
+    return err.message || "the request failed.";
   }
 
   /* ---------------- auth ---------------- */
@@ -249,7 +283,7 @@
   }
 
   function authenticate(email, password) {
-    return request("/authenticate/email", { email: email, password: password })
+    return requestWithRetry("/authenticate/email", { email: email, password: password })
       .then(function (data) {
         if (!data || !data.api_key) throw new Error("No API key returned");
         return data.api_key;
@@ -270,7 +304,7 @@
     say($("authMsg"), registering ? "Creating your account…" : "Signing in…", "ok");
 
     var chain = registering
-      ? request("/register", { email: email, password: password }).then(function () {
+      ? requestWithRetry("/register", { email: email, password: password }).then(function () {
           return authenticate(email, password);
         })
       : authenticate(email, password);
@@ -278,7 +312,7 @@
     chain.then(function (key) {
       signedIn(key, email);
     }).catch(function (err) {
-      say($("authMsg"), err.message || "Something went wrong.", "error");
+      say($("authMsg"), err.network || err.status >= 500 ? "Couldn't reach the service: " + describe(err) : (err.message || "Something went wrong."), "error");
     }).then(function () {
       state.busy = false;
       $("authSubmit").disabled = false;
@@ -342,6 +376,7 @@
       video.srcObject = stream;
       video.play();
       hide($("preview"));
+      $("stage").classList.remove("photo");
       hide($("placeholder"));
       hide($("retake"));
       show(video);
@@ -361,6 +396,7 @@
   }
 
   function drawToCanvas(source, w, h) {
+    if (!w || !h) throw new Error("empty image");
     var scale = Math.min(1, MAX_DIM / Math.max(w, h));
     var canvas = $("canvas");
     canvas.width = Math.round(w * scale);
@@ -369,26 +405,74 @@
     return canvas.toDataURL("image/jpeg", 0.85);
   }
 
+  function describeImageFailure(file) {
+    var name = (file.name || "").toLowerCase();
+    if (/\.(heic|heif)$/.test(name) || /heic|heif/i.test(file.type || "")) {
+      return "This browser can't read iPhone HEIC photos. On the iPhone, " +
+             "Settings → Camera → Formats → “Most Compatible” saves JPEGs instead.";
+    }
+    return "That photo couldn't be read" + (file.type ? " (" + file.type + ")" : "") + ". Try a JPEG or PNG.";
+  }
+
+  // createImageBitmap decodes off the main thread and copes with larger photos
+  // and more formats than an <img> does; fall back where it isn't available.
+  function loadImage(file) {
+    if (window.createImageBitmap) {
+      return createImageBitmap(file).then(function (bitmap) {
+        return {
+          img: bitmap, width: bitmap.width, height: bitmap.height,
+          release: function () { if (bitmap.close) bitmap.close(); }
+        };
+      }).catch(function () { return loadViaElement(file); });
+    }
+    return loadViaElement(file);
+  }
+
+  // An object URL keeps a large photo out of a base64 string, and decode() guarantees
+  // the bitmap is ready — drawing on load alone can yield a blank or partial canvas.
+  function loadViaElement(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      var settle = function (ok) {
+        return function () {
+          if (ok && img.naturalWidth) {
+            resolve({
+              img: img, width: img.naturalWidth, height: img.naturalHeight,
+              release: function () { URL.revokeObjectURL(url); }
+            });
+          }
+          else { URL.revokeObjectURL(url); reject(new Error("decode failed")); }
+        };
+      };
+      img.onload = function () {
+        if (img.decode) img.decode().then(settle(true), settle(false));
+        else settle(true)();
+      };
+      img.onerror = settle(false);
+      img.src = url;
+    });
+  }
+
   function onFilePicked(e) {
     var file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function () {
-      var img = new Image();
-      img.onload = function () {
-        stopCamera();
-        usePhoto(drawToCanvas(img, img.naturalWidth, img.naturalHeight));
-      };
-      img.onerror = function () { say($("appMsg"), "That file couldn't be read as an image.", "error"); };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
+    clearMsg($("appMsg"));
+    loadImage(file).then(function (loaded) {
+      stopCamera();
+      var dataUrl = drawToCanvas(loaded.img, loaded.width, loaded.height);
+      loaded.release();
+      usePhoto(dataUrl);
+    }).catch(function () {
+      say($("appMsg"), describeImageFailure(file), "error");
+    });
   }
 
   function usePhoto(dataUrl) {
     var preview = $("preview");
     preview.src = dataUrl;
+    $("stage").classList.add("photo");
     show(preview);
     hide($("placeholder"));
     hide($("startCam"));
@@ -398,6 +482,7 @@
 
   function resetCapture() {
     stopCamera();
+    $("stage").classList.remove("photo");
     hide($("preview"));
     $("preview").removeAttribute("src");
     show($("placeholder"));
@@ -432,12 +517,14 @@
     }).catch(function (err) {
       hide(box);
       answer.textContent = "";
-      var detail = err.message || "Request failed";
-      if (/api key|unauthorized|invalid/i.test(detail)) {
+      if (!err.network && err.status !== 401 && /api key|unauthorized/i.test(err.message || "")) {
+        say($("appMsg"), "Your session expired. Please log in again.", "error");
+        signOut();
+      } else if (err.status === 401) {
         say($("appMsg"), "Your session expired. Please log in again.", "error");
         signOut();
       } else {
-        say($("appMsg"), "Couldn't identify that photo: " + detail, "error");
+        say($("appMsg"), "Couldn't identify that photo — " + describe(err), "error");
       }
     }).then(function () {
       $("retake").disabled = false;
